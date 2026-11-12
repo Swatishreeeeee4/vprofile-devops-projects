@@ -1,0 +1,3 @@
+# Scripts run on Linux (EC2 user data / VMs): keep LF line endings even on Windows clones
+*.sh text eol=lf
+*.repo text eol=lf
