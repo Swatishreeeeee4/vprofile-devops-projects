@@ -1,0 +1,21 @@
+// Ship the titan app's log files to Loki (labels: job, file)
+local.file_match "titan_logs" {
+  path_targets = [{ __path__ = "/var/log/titan/*.log", job = "titan", hostname = "web01" }]
+  sync_period  = "5s"
+}
+loki.source.file "titan" {
+  targets       = local.file_match.titan_logs.targets
+  forward_to    = [loki.process.levels.receiver]
+  tail_from_end = false
+}
+// Extract the log level (INFO/WARNING/ERROR) as a label so Grafana can filter/count by it
+loki.process "levels" {
+  // backtick = raw string: backslashes are literal (in "..." Alloy rejects \S as an unknown escape)
+  // matches the level in both formats: Python "date time LEVEL msg" and Apache-style "... \"LEVEL [app]: msg\""
+  stage.regex { expression = `\b(?P<level>INFO|WARNING|ERROR)\b` }
+  stage.labels { values = { level = "" } }
+  forward_to = [loki.write.loki.receiver]
+}
+loki.write "loki" {
+  endpoint { url = "http://loki:3100/loki/api/v1/push" }
+}

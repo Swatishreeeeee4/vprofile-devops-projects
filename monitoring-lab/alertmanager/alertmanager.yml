@@ -1,0 +1,11 @@
+route:
+  receiver: webhook
+  group_by: [alertname]
+  group_wait: 10s
+  repeat_interval: 1h
+receivers:
+  - name: webhook
+    webhook_configs:
+      # Lab: a small receiver that prints every alert. In a real team, use slack_configs / msteams / PagerDuty.
+      - url: http://alert-receiver:8080/alert
+        send_resolved: true

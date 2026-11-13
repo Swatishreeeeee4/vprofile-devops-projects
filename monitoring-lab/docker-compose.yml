@@ -1,0 +1,91 @@
+services:
+  titan:                       # the monitored app: Flask + prometheus_client, logs in /var/log/titan
+    build: ../titan
+    container_name: titan
+    ports: ["5000:5000"]
+    volumes: [titan_logs:/var/log/titan]
+
+  loadgen:                     # realistic traffic: page views, payments and some 404s (-> ERROR logs)
+    image: curlimages/curl:8.11.0
+    container_name: loadgen
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          curl -s -o /dev/null titan:5000/; curl -s -o /dev/null titan:5000/payment
+          [ $$((RANDOM % 5)) -eq 0 ] && curl -s -o /dev/null "titan:5000/..%2fetc/passwd"
+          sleep 0.$$((RANDOM % 9 + 1))
+        done
+    depends_on: [titan]
+
+  loggen:                      # course's generate_multi_logs.sh idea: random INFO/WARNING/ERROR lines, Apache style
+    image: alpine:3.20
+    container_name: loggen
+    volumes: [titan_logs:/var/log/titan]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -- "INFO:Request served successfully" "INFO:Health check passed" "WARNING:Slow response time" \
+               "WARNING:Disk space low" "ERROR:Database connection failed" "ERROR:Service timeout"
+        while true; do
+          i=$$(( $$(od -An -N1 -tu1 /dev/urandom) % 6 + 1 )); eval e=\$$$$i
+          echo "192.168.1.$$i - - [$$(date '+%d/%b/%Y:%H:%M:%S %z')] \"$${e%%:*} [app1]: $${e#*:}\"" >> /var/log/titan/app1.log
+          sleep 2
+        done
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    command: ["--path.rootfs=/host"]
+    volumes: ["/:/host:ro"]
+    pid: host
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    ports: ["9093:9093"]
+    volumes: [./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro]
+
+  alert-receiver:              # prints every alert Alertmanager sends (stand-in for Slack/Teams)
+    image: mendhak/http-https-echo:34
+    container_name: alert-receiver
+    environment: [HTTP_PORT=8080]
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: loki
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes: [./loki/loki.yml:/etc/loki/loki.yml:ro]
+    ports: ["3100:3100"]
+
+  alloy:                       # log shipper (replaces promtail)
+    image: grafana/alloy:v1.4.3
+    container_name: alloy
+    command: ["run", "/etc/alloy/config.alloy", "--server.http.listen-addr=0.0.0.0:12345"]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - titan_logs:/var/log/titan:ro
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus, loki]
+
+volumes:
+  titan_logs: {}
