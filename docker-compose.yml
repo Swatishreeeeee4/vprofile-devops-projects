@@ -1,0 +1,51 @@
+services:
+  vprodb:
+    build: ./Docker-files/db
+    image: vprocontainers/vprofiledb
+    container_name: vprodb
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-vprodbpass}   # override via .env (not committed)
+    volumes:
+      - vprodbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD:-vprodbpass}"]
+      interval: 10s
+      retries: 12
+
+  vprocache01:
+    image: memcached:1.6
+    container_name: vprocache01
+
+  vpromq01:
+    image: rabbitmq:4.0
+    container_name: vpromq01
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  vproapp:
+    build:
+      context: .                              # repo root, so the app image is built from this source
+      dockerfile: Docker-files/app/Dockerfile
+    image: vprocontainers/vprofileapp
+    container_name: vproapp
+    depends_on:
+      vprodb:
+        condition: service_healthy            # wait until MySQL actually accepts connections
+      vprocache01:
+        condition: service_started
+      vpromq01:
+        condition: service_started
+    restart: on-failure
+
+  vproweb:
+    build: ./Docker-files/web
+    image: vprocontainers/vprofileweb
+    container_name: vproweb
+    ports:
+      - "80:80"                               # only the web tier is published to the host
+    depends_on:
+      - vproapp
+
+volumes:
+  vprodbdata: {}
