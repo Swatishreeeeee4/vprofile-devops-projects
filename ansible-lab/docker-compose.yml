@@ -1,0 +1,21 @@
+services:
+  control:
+    build: ./images/control
+    container_name: control
+    volumes: [".:/ansible", "./.keys:/keys:ro"]
+    environment: [ANSIBLE_CONFIG=/ansible/ansible.cfg]
+  web01:
+    build: ./images/ubuntu
+    container_name: web01
+    hostname: web01
+    volumes: ["./.keys:/keys:ro"]
+  web02:
+    build: ./images/rocky
+    container_name: web02
+    hostname: web02
+    volumes: ["./.keys:/keys:ro"]
+  db01:
+    build: ./images/ubuntu
+    container_name: db01
+    hostname: db01
+    volumes: ["./.keys:/keys:ro"]

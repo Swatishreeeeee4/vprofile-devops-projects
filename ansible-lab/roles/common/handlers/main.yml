@@ -1,0 +1,4 @@
+# Runs only when a notifying task changed something, once, at the end of the play.
+# sshd runs as PID 1 in these containers, so signal it directly (works on both OS families).
+- name: Reload sshd
+  ansible.builtin.shell: kill -HUP 1

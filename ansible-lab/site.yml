@@ -1,0 +1,12 @@
+# Entry point: ansible-playbook site.yml
+- name: Baseline for every server
+  hosts: all
+  roles: [common]
+
+- name: Web servers
+  hosts: web
+  roles: [webserver]
+
+- name: Database servers
+  hosts: db
+  roles: [dbserver]

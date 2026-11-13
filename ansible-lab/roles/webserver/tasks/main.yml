@@ -1,0 +1,30 @@
+- name: Web root depends on the OS family
+  ansible.builtin.set_fact:
+    web_root: "{{ '/var/www/html' if ansible_os_family == 'Debian' else '/usr/share/nginx/html' }}"
+
+- name: Install nginx (Debian family)
+  ansible.builtin.apt: { name: nginx, state: present, update_cache: true, cache_valid_time: 3600 }
+  when: ansible_os_family == "Debian"
+
+- name: Install nginx (RedHat family)
+  ansible.builtin.dnf: { name: nginx, state: present }
+  when: ansible_os_family == "RedHat"
+
+- name: Home page from a template
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ web_root }}/index.html"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Start nginx if it is not running (containers have no systemd, so call nginx directly)
+  ansible.builtin.command: nginx
+  args:
+    creates: /run/nginx.pid
+
+- name: Verify the page is served
+  ansible.builtin.uri:
+    url: http://localhost/
+    return_content: true
+  register: page
+  failed_when: inventory_hostname not in page.content

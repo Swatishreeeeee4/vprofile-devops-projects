@@ -1,0 +1,27 @@
+- name: Install MariaDB and the Python driver Ansible needs
+  ansible.builtin.apt:
+    name: [mariadb-server, python3-pymysql]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: MariaDB running
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+
+- name: Application database
+  community.mysql.mysql_db:
+    name: "{{ db_name }}"
+    state: present
+    login_unix_socket: /run/mysqld/mysqld.sock
+
+- name: Application user, rights on that database only (least privilege)
+  community.mysql.mysql_user:
+    name: "{{ db_user }}"
+    password: "{{ db_password }}"
+    host: localhost
+    priv: "{{ db_name }}.*:ALL"
+    state: present
+    login_unix_socket: /run/mysqld/mysqld.sock
+  no_log: true          # keep the password out of the output

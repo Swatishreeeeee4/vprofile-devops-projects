@@ -1,0 +1,2 @@
+# Password generated on first run and stored outside Git (.keys/ is git-ignored).
+db_password: "{{ lookup('ansible.builtin.password', '/ansible/.keys/db_password chars=ascii_letters,digits length=20') }}"

@@ -1,0 +1,4 @@
+admin_group: devops
+admin_users: [swati, ravi]
+base_packages: [git, wget, unzip]   # curl comes preinstalled (curl-minimal on Rocky conflicts with "curl")
+banner_text: "Authorised access only. This server is managed by Ansible."
