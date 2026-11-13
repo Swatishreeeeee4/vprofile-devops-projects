@@ -1,120 +1,60 @@
+// VProfile CI pipeline: build -> unit tests -> Checkstyle -> SonarQube analysis -> Quality Gate -> publish to Nexus
 pipeline {
-    
-	agent any
-tools {
-	    maven "MAVEN3"
-	    jdk "JDK17"
-	}
-    environment {
-        NEXUS_VERSION = "nexus3"
-        NEXUS_PROTOCOL = "http"
-        NEXUS_URL = "IP:8081"
-        NEXUS_REPOSITORY = "vprofile-release"
-	NEXUS_REPO_ID    = "vprofile-release"
-        NEXUS_CREDENTIAL_ID = "nexuslogin"
-        ARTVERSION = "${env.BUILD_ID}"
+  agent any
+  options {
+    timestamps()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    disableConcurrentBuilds()
+  }
+  environment {
+    NEXUS_URL  = 'nexus:8081'        // compose service name (use the server's IP/DNS in a real setup)
+    NEXUS_REPO = 'vprofile-repo'
+  }
+  stages {
+    stage('Build') {
+      steps { sh 'mvn -B install -DskipTests' }
+      post { success { archiveArtifacts artifacts: '**/target/*.war', fingerprint: true } }
     }
-	
-    stages{
-        
-        stage('BUILD'){
-            steps {
-                sh 'mvn clean install -DskipTests'
-            }
-            post {
-                success {
-                    echo 'Now Archiving...'
-                    archiveArtifacts artifacts: '**/target/*.war'
-                }
-            }
-        }
-
-	stage('UNIT TEST'){
-            steps {
-                sh 'mvn test'
-            }
-        }
-
-	stage('INTEGRATION TEST'){
-            steps {
-                sh 'mvn verify -DskipUnitTests'
-            }
-        }
-		
-        stage ('CODE ANALYSIS WITH CHECKSTYLE'){
-            steps {
-                sh 'mvn checkstyle:checkstyle'
-            }
-            post {
-                success {
-                    echo 'Generated Analysis Result'
-                }
-            }
-        }
-
-        stage('CODE ANALYSIS with SONARQUBE') {
-          
-		  environment {
-             scannerHome = tool 'sonarscanner4'
-          }
-
-          steps {
-            withSonarQubeEnv('sonar-pro') {
-               sh '''${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=vprofile \
-                   -Dsonar.projectName=vprofile-repo \
-                   -Dsonar.projectVersion=1.0 \
-                   -Dsonar.sources=src/ \
-                   -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
-                   -Dsonar.junit.reportsPath=target/surefire-reports/ \
-                   -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-                   -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
-            }
-
-            timeout(time: 10, unit: 'MINUTES') {
-               waitForQualityGate abortPipeline: true
-            }
-          }
-        }
-
-        stage("Publish to Nexus Repository Manager") {
-            steps {
-                script {
-                    pom = readMavenPom file: "pom.xml";
-                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}");
-                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
-                    artifactPath = filesByGlob[0].path;
-                    artifactExists = fileExists artifactPath;
-                    if(artifactExists) {
-                        echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version} ARTVERSION";
-                        nexusArtifactUploader(
-                            nexusVersion: NEXUS_VERSION,
-                            protocol: NEXUS_PROTOCOL,
-                            nexusUrl: NEXUS_URL,
-                            groupId: pom.groupId,
-                            version: ARTVERSION,
-                            repository: NEXUS_REPOSITORY,
-                            credentialsId: NEXUS_CREDENTIAL_ID,
-                            artifacts: [
-                                [artifactId: pom.artifactId,
-                                classifier: '',
-                                file: artifactPath,
-                                type: pom.packaging],
-                                [artifactId: pom.artifactId,
-                                classifier: '',
-                                file: "pom.xml",
-                                type: "pom"]
-                            ]
-                        );
-                    } 
-		    else {
-                        error "*** File: ${artifactPath}, could not be found";
-                    }
-                }
-            }
-        }
-
-
+    stage('Unit Tests') {
+      steps { sh 'mvn -B test' }
+      post { always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml' } }
     }
-
-
+    stage('Checkstyle') {
+      steps { sh 'mvn -B checkstyle:checkstyle' }
+    }
+    stage('SonarQube Analysis') {
+      environment { scannerHome = tool 'sonarscanner' }
+      steps {
+        withSonarQubeEnv('sonarserver') {
+          sh '''${scannerHome}/bin/sonar-scanner \
+            -Dsonar.projectKey=vprofile -Dsonar.projectName=vprofile -Dsonar.projectVersion=${BUILD_ID} \
+            -Dsonar.sources=src/ -Dsonar.java.binaries=target/classes \
+            -Dsonar.junit.reportsPath=target/surefire-reports \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
+        }
+      }
+    }
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 10, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true   // SonarQube calls back via webhook; a failing gate stops here
+        }
+      }
+    }
+    stage('Publish to Nexus') {
+      steps {
+        nexusArtifactUploader(
+          nexusVersion: 'nexus3', protocol: 'http', nexusUrl: "${NEXUS_URL}",
+          groupId: 'QA', version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
+          repository: "${NEXUS_REPO}", credentialsId: 'nexuslogin',
+          artifacts: [[artifactId: 'vproapp', classifier: '', file: 'target/vprofile-v2.war', type: 'war']]
+        )
+      }
+    }
+  }
+  post {
+    success { echo "Build ${env.BUILD_ID} passed: artifact vproapp-${env.BUILD_ID}-${env.BUILD_TIMESTAMP}.war is in Nexus" }
+    failure { echo "Build ${env.BUILD_ID} failed: check the first red stage" }
+  }
 }

@@ -1,0 +1,13 @@
+configuration-as-code
+job-dsl
+workflow-aggregator
+git
+github
+credentials-binding
+pipeline-stage-view
+pipeline-utility-steps
+timestamper
+sonar
+nexus-artifact-uploader
+build-timestamp
+junit
