@@ -16,7 +16,7 @@ pipeline {
       post { success { archiveArtifacts artifacts: '**/target/*.war', fingerprint: true } }
     }
     stage('Unit Tests') {
-      steps { sh 'mvn -B test' }
+      steps { sh 'mvn -B test jacoco:report' }   // jacoco:report writes target/site/jacoco/jacoco.xml for Sonar
       post { always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml' } }
     }
     stage('Checkstyle') {
@@ -46,7 +46,7 @@ pipeline {
       steps {
         nexusArtifactUploader(
           nexusVersion: 'nexus3', protocol: 'http', nexusUrl: "${NEXUS_URL}",
-          groupId: 'QA', version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
+          groupId: 'QA', version: "${env.BUILD_ID}-${env.GIT_COMMIT.take(7)}",   // traceable: build number + commit
           repository: "${NEXUS_REPO}", credentialsId: 'nexuslogin',
           artifacts: [[artifactId: 'vproapp', classifier: '', file: 'target/vprofile-v2.war', type: 'war']]
         )
@@ -54,7 +54,7 @@ pipeline {
     }
   }
   post {
-    success { echo "Build ${env.BUILD_ID} passed: artifact vproapp-${env.BUILD_ID}-${env.BUILD_TIMESTAMP}.war is in Nexus" }
+    success { echo "Build ${env.BUILD_ID} passed: artifact vproapp-${env.BUILD_ID}-${env.GIT_COMMIT.take(7)}.war is in Nexus" }
     failure { echo "Build ${env.BUILD_ID} failed: check the first red stage" }
   }
 }

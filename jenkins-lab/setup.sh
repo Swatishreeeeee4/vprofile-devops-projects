@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export MSYS_NO_PATHCONV=1
 gen(){ python -c "import secrets,string;a=string.ascii_letters+string.digits;print(''.join(secrets.choice(a) for _ in range(18)))"; }
-wait_http(){ for i in $(seq 1 90); do curl -s -o /dev/null -w "%{http_code}" "$1" | grep -qE "$2" && return 0; sleep 5; done; echo "timeout: $1"; return 1; }
+wait_http(){ for i in $(seq 1 180); do curl -s -o /dev/null -w "%{http_code}" "$1" | grep -qE "$2" && return 0; sleep 5; done; echo "timeout: $1"; return 1; }
 
 [ -f .env ] || printf "JENKINS_ADMIN_PASSWORD=%s\nSONAR_ADMIN_PASSWORD=%s\nNEXUS_PASSWORD=%s\nSONAR_TOKEN=\n" "$(gen)" "$(gen)" "$(gen)" > .env
 set -a; source .env; set +a
@@ -26,11 +26,17 @@ curl -s -o /dev/null -u "admin:$SONAR_ADMIN_PASSWORD" -X POST "localhost:9000/ap
 
 echo "== Nexus: wait, set admin password, disable anonymous, create maven repo"
 wait_http localhost:8081/service/rest/v1/status 200
-if docker exec nexus test -f /nexus-data/admin.password; then
-  INIT=$(docker exec nexus cat /nexus-data/admin.password)
-  curl -s -o /dev/null -u "admin:$INIT" -X PUT -H "Content-Type: text/plain" \
-    --data "$NEXUS_PASSWORD" localhost:8081/service/rest/v1/security/users/admin/change-password
-fi
+# The status endpoint answers 200 slightly before the security subsystem is ready, so a single
+# password-change call can be silently lost. Retry until the NEW password is actually accepted.
+for i in $(seq 1 30); do
+  curl -s -o /dev/null -w "%{http_code}" -u "admin:$NEXUS_PASSWORD" localhost:8081/service/rest/v1/repositories | grep -q 200 && break
+  if docker exec nexus test -f /nexus-data/admin.password; then
+    INIT=$(docker exec nexus cat /nexus-data/admin.password)
+    curl -s -o /dev/null -u "admin:$INIT" -X PUT -H "Content-Type: text/plain" \
+      --data "$NEXUS_PASSWORD" localhost:8081/service/rest/v1/security/users/admin/change-password || true
+  fi
+  sleep 10
+done
 curl -s -o /dev/null -u "admin:$NEXUS_PASSWORD" -X PUT -H "Content-Type: application/json" \
   -d '{"enabled":false,"userId":"anonymous","realmName":"NexusAuthorizingRealm"}' localhost:8081/service/rest/v1/security/anonymous
 curl -s -o /dev/null -u "admin:$NEXUS_PASSWORD" -X POST -H "Content-Type: application/json" \
