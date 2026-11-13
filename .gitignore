@@ -1,0 +1,4 @@
+aws/.state.env
+aws/.*.json
+aws/.props.bak
+target/
