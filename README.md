@@ -25,3 +25,7 @@ problems I hit and how I fixed them.
 1. Open the branch link above.
 2. Read its **README**: architecture diagram, how to run it, **What I changed**, **Debugging notes**.
 3. The commit history shows each fix with an explanation.
+
+## Author
+
+Swatishree Barik · [github.com/Swatishreeeeee4](https://github.com/Swatishreeeeee4)
